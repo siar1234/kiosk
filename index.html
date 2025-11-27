@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 키오스크 주문</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 폰트 설정 및 기본 스타일 */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-user-select: none; /* 텍스트 선택 방지 (키오스크 환경) */
+            user-select: none;
+            touch-action: manipulation; /* 터치 이벤트 최적화 */
+        }
+        /* 스크롤바 숨기기 (키오스크의 깔끔한 디자인을 위해) */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        /* 항목 선택 효과 */
+        .menu-item:active {
+            transform: scale(0.98);
+            box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.5); /* 탭 시 빨간색 테두리 효과 */
+            transition: all 0.1s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col">
+
+<!-- Header -->
+<header class="bg-red-600 p-4 shadow-lg sticky top-0 z-10">
+    <h1 class="text-3xl font-bold text-white text-center">☕ 스마트 오더 키오스크</h1>
+    <p class="text-sm text-red-200 text-center mt-1">원하시는 메뉴를 선택해 주세요.</p>
+</header>
+
+<!-- Main Content Area: Menu & Categories -->
+<div class="flex flex-1 overflow-hidden">
+
+    <!-- Category Navigation (왼쪽 사이드바 - 세로 화면에 맞게 좁게 배치) -->
+    <nav id="category-nav" class="w-24 bg-gray-100 p-2 overflow-y-auto no-scrollbar flex flex-col shadow-inner">
+        <!-- 카테고리 버튼들이 여기에 JS로 렌더링됩니다. -->
+    </nav>
+
+    <!-- Menu Items Display (오른쪽 메인 영역) -->
+    <main class="flex-1 p-4 overflow-y-auto no-scrollbar">
+        <div id="menu-display" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <!-- 메뉴 항목들이 여기에 JS로 렌더링됩니다. -->
+        </div>
+    </main>
+</div>
+
+<!-- Order Summary / Cart (하단 영역 - 장바구니) -->
+<div class="bg-white p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] sticky bottom-0 z-10">
+    <div id="order-summary" class="flex justify-between items-center mb-3">
+        <h2 class="text-xl font-bold text-gray-800">📋 장바구니</h2>
+        <button onclick="clearCart()" class="text-sm text-red-500 hover:text-red-700 font-semibold transition">전체 취소</button>
+    </div>
+
+    <!-- Cart Items List -->
+    <div id="cart-items" class="max-h-24 overflow-y-auto no-scrollbar border-b border-gray-200 pb-2 mb-3">
+        <!-- 장바구니 항목들이 여기에 JS로 렌더링됩니다. -->
+        <p id="empty-cart-message" class="text-gray-400 text-center py-2 text-sm">장바구니가 비어있습니다.</p>
+    </div>
+
+    <!-- Total and Order Button -->
+    <div class="flex justify-between items-center text-2xl font-extrabold text-gray-900 mb-4">
+        <span>총 결제 금액:</span>
+        <span id="total-price" class="text-red-600">0원</span>
+    </div>
+
+    <button onclick="placeOrder()" id="order-button"
+            class="w-full py-4 text-white font-bold rounded-xl shadow-lg transition duration-200
+                   bg-red-600 hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed text-xl"
+            disabled>
+        주문 및 결제하기
+    </button>
+
+    <!-- Notification Message Box (대체용 Alert) -->
+    <div id="kiosk-message" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4" onclick="hideMessage()">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center" onclick="event.stopPropagation()">
+            <div id="message-content" class="text-lg font-semibold mb-4 text-gray-800"></div>
+            <button onclick="hideMessage()" class="bg-red-500 text-white py-2 px-6 rounded-lg font-medium hover:bg-red-600 transition">확인</button>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    // 상수 및 초기 상태
+    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'kiosk-default-app';
+    let cart = {}; // { itemId: { item, count } }
+    let currentCategory = 'coffee';
+
+    // 목업 메뉴 데이터
+    const menuData = {
+        'coffee': [
+            { id: 'ame', name: '아메리카노', price: 4000, img: 'https://placehold.co/150x150/ff6b6b/ffffff?text=AME' },
+            { id: 'lat', name: '카페 라떼', price: 5000, img: 'https://placehold.co/150x150/4ecdc4/ffffff?text=LAT' },
+            { id: 'car', name: '카라멜 마키아토', price: 5500, img: 'https://placehold.co/150x150/45b7d1/ffffff?text=CAR' },
+            { id: 'van', name: '바닐라 라떼', price: 5200, img: 'https://placehold.co/150x150/f7a37a/ffffff?text=VAN' },
+        ],
+        'tea': [
+            { id: 'gre', name: '녹차', price: 3500, img: 'https://placehold.co/150x150/8d8d8d/ffffff?text=TEA' },
+            { id: 'lem', name: '레몬차', price: 4500, img: 'https://placehold.co/150x150/ffe66d/000000?text=LEM' },
+            { id: 'cha', name: '얼그레이', price: 3800, img: 'https://placehold.co/150x150/9b59b6/ffffff?text=EAR' },
+        ],
+        'dessert': [
+            { id: 'cak', name: '치즈 케이크', price: 7000, img: 'https://placehold.co/150x150/2ecc71/ffffff?text=CAK' },
+            { id: 'sco', name: '플레인 스콘', price: 3000, img: 'https://placehold.co/150x150/3498db/ffffff?text=SCO' },
+        ]
+    };
+
+    // 카테고리 이름 (표시용)
+    const categoryNames = {
+        'coffee': '커피',
+        'tea': '차/음료',
+        'dessert': '디저트',
+    };
+
+    // --- 유틸리티 함수 ---
+
+    // 숫자 포맷팅 (예: 4000 -> 4,000원)
+    const formatCurrency = (amount) => amount.toLocaleString('ko-KR') + '원';
+
+    // 사용자에게 메시지를 보여주는 함수 (alert() 대체)
+    function showMessage(message) {
+        const messageBox = document.getElementById('kiosk-message');
+        document.getElementById('message-content').innerText = message;
+        messageBox.classList.remove('hidden');
+        messageBox.classList.add('flex');
+    }
+
+    function hideMessage() {
+        const messageBox = document.getElementById('kiosk-message');
+        messageBox.classList.add('hidden');
+        messageBox.classList.remove('flex');
+    }
+
+    // --- 렌더링 함수 ---
+
+    // 카테고리 메뉴 렌더링
+    function renderCategories() {
+        const nav = document.getElementById('category-nav');
+        nav.innerHTML = '';
+
+        Object.keys(menuData).forEach(catId => {
+            const isActive = catId === currentCategory;
+            const button = document.createElement('button');
+            button.className = `w-full py-4 mb-2 text-center rounded-lg font-semibold transition duration-150 ${
+                isActive
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-white text-gray-700 hover:bg-red-100 hover:text-red-600'
+            } text-sm whitespace-nowrap`;
+            button.textContent = categoryNames[catId];
+            button.onclick = () => switchCategory(catId);
+            nav.appendChild(button);
+        });
+    }
+
+    // 메뉴 항목 렌더링
+    function renderMenuItems() {
+        const display = document.getElementById('menu-display');
+        display.innerHTML = '';
+
+        const items = menuData[currentCategory] || [];
+
+        if (items.length === 0) {
+            display.innerHTML = `<p class="text-center text-gray-500 col-span-full py-10">현재 메뉴 준비 중입니다.</p>`;
+            return;
+        }
+
+        items.forEach(item => {
+            const itemEl = document.createElement('div');
+            itemEl.className = 'menu-item cursor-pointer bg-white p-3 rounded-xl shadow-md hover:shadow-lg transition duration-150 border-2 border-transparent hover:border-red-400';
+            itemEl.innerHTML = `
+                <img src="${item.img}" alt="${item.name}" class="w-full h-32 object-cover rounded-lg mb-2" onerror="this.onerror=null;this.src='https://placehold.co/150x150/eeeeee/333333?text=${item.name.slice(0, 3)}';">
+                <h3 class="text-lg font-semibold text-gray-900 truncate">${item.name}</h3>
+                <p class="text-red-600 font-bold text-xl">${formatCurrency(item.price)}</p>
+            `;
+            itemEl.onclick = () => addItemToCart(item);
+            display.appendChild(itemEl);
+        });
+    }
+
+    // 장바구니 항목 렌더링 및 총액 업데이트
+    function renderCart() {
+        const cartList = document.getElementById('cart-items');
+        const emptyMessage = document.getElementById('empty-cart-message');
+        const totalPriceEl = document.getElementById('total-price');
+        const orderButton = document.getElementById('order-button');
+
+        let total = 0;
+        let cartHtml = '';
+        const cartItemsArray = Object.values(cart);
+
+        if (cartItemsArray.length === 0) {
+            emptyMessage.classList.remove('hidden');
+            orderButton.disabled = true;
+        } else {
+            emptyMessage.classList.add('hidden');
+            orderButton.disabled = false;
+        }
+
+        cartItemsArray.forEach(cartItem => {
+            const itemTotal = cartItem.item.price * cartItem.count;
+            total += itemTotal;
+
+            cartHtml += `
+                <div class="flex items-center justify-between py-1.5 px-1 hover:bg-red-50 rounded-lg">
+                    <span class="text-gray-700 font-medium truncate">${cartItem.item.name}</span>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="decrementItem('${cartItem.item.id}')"
+                            class="w-6 h-6 bg-red-100 text-red-600 rounded-full hover:bg-red-200 text-xl font-bold leading-none">-</button>
+                        <span class="font-bold w-4 text-center">${cartItem.count}</span>
+                        <button onclick="incrementItem('${cartItem.item.id}')"
+                            class="w-6 h-6 bg-red-100 text-red-600 rounded-full hover:bg-red-200 text-xl font-bold leading-none">+</button>
+                        <span class="text-gray-800 font-semibold w-20 text-right">${formatCurrency(itemTotal)}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        cartList.innerHTML = cartHtml;
+        totalPriceEl.textContent = formatCurrency(total);
+    }
+
+    // --- 이벤트 핸들러 ---
+
+    // 카테고리 전환
+    function switchCategory(catId) {
+        currentCategory = catId;
+        renderCategories();
+        renderMenuItems();
+    }
+
+    // 장바구니에 항목 추가
+    function addItemToCart(item) {
+        if (cart[item.id]) {
+            cart[item.id].count++;
+        } else {
+            cart[item.id] = { item: item, count: 1 };
+        }
+        renderCart();
+        showMessage(`${item.name} 1개가 장바구니에 추가되었습니다.`);
+    }
+
+    // 장바구니 항목 수량 증가
+    function incrementItem(itemId) {
+        if (cart[itemId]) {
+            cart[itemId].count++;
+            renderCart();
+        }
+    }
+
+    // 장바구니 항목 수량 감소
+    function decrementItem(itemId) {
+        if (cart[itemId]) {
+            cart[itemId].count--;
+            if (cart[itemId].count <= 0) {
+                delete cart[itemId];
+            }
+            renderCart();
+        }
+    }
+
+    // 장바구니 전체 비우기
+    function clearCart() {
+        if (Object.keys(cart).length === 0) {
+            showMessage("장바구니가 이미 비어있습니다.");
+            return;
+        }
+        // 사용자 확인 과정은 커스텀 모달로 대체
+        showMessage("장바구니를 전체 취소했습니다. 다시 주문해주세요.");
+        cart = {};
+        renderCart();
+    }
+
+    // 주문 및 결제 (시뮬레이션)
+    function placeOrder() {
+        const total = Object.values(cart).reduce((sum, item) => sum + (item.item.price * item.count), 0);
+        if (total === 0) {
+            showMessage("주문할 항목이 없습니다. 메뉴를 선택해주세요.");
+            return;
+        }
+
+        // 실제 결제 로직 대신 메시지 표시
+        showMessage(`총 ${formatCurrency(total)} 결제가 완료되었습니다! 주문 번호 [${Date.now().toString().slice(-4)}]가 발행되었습니다. 잠시 후 메뉴를 수령해 주세요. 감사합니다!`);
+
+        // 주문 후 장바구니 비우기
+        cart = {};
+        renderCart();
+
+        // 카테고리를 초기화 상태로 돌리기
+        switchCategory('coffee');
+    }
+
+
+    // --- 초기화 ---
+
+    // 페이지 로드 시 초기화 함수
+    window.onload = function() {
+        // 초기 렌더링
+        renderCategories();
+        renderMenuItems();
+        renderCart();
+    };
+
+</script>
+</body>
+</html>
